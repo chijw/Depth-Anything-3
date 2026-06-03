@@ -438,5 +438,6 @@ class NestedDepthAnything3Net(nn.Module):
         output.depth, output.depth_conf = set_sky_regions_to_max_depth(
             output.depth, output.depth_conf, non_sky_mask, max_depth=non_sky_max
         )
+        output.sky = metric_output.sky
 
         return output

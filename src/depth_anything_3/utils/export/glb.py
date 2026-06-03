@@ -32,9 +32,16 @@ def set_sky_depth(prediction: Prediction, sky_mask: np.ndarray, sky_depth_def: f
         prediction.depth[sky_mask] = max_depth
 
 
+def _prediction_sky_mask(prediction: Prediction) -> np.ndarray | None:
+    sky_mask = getattr(prediction, "sky", None)
+    if sky_mask is None:
+        sky_mask = getattr(prediction, "sky_mask", None)
+    return sky_mask
+
+
 def get_conf_thresh(
     prediction: Prediction,
-    sky_mask: np.ndarray,
+    sky_mask: np.ndarray | None,
     conf_thresh: float,
     conf_thresh_percentile: float = 10.0,
     ensure_thresh_percentile: float = 90.0,
@@ -113,8 +120,9 @@ def export_to_glb(
     images_u8 = prediction.processed_images  # (N,H,W,3) uint8
 
     # 2) Sky processing (if sky_mask is provided)
-    if getattr(prediction, "sky_mask", None) is not None:
-        set_sky_depth(prediction, prediction.sky_mask, sky_depth_def)
+    sky_mask = _prediction_sky_mask(prediction)
+    if sky_mask is not None:
+        set_sky_depth(prediction, sky_mask, sky_depth_def)
 
     # 3) Confidence threshold (if no conf, then no filtering)
     if filter_black_bg:
@@ -123,7 +131,7 @@ def export_to_glb(
         prediction.conf[(prediction.processed_images >= 240).all(axis=-1)] = 1.0
     conf_thr = get_conf_thresh(
         prediction,
-        getattr(prediction, "sky_mask", None),
+        sky_mask,
         conf_thresh,
         conf_thresh_percentile,
         ensure_thresh_percentile,
@@ -137,6 +145,7 @@ def export_to_glb(
         images_u8,
         prediction.conf,
         conf_thr,
+        sky_mask,
     )
 
     # 5) Based on first camera orientation + glTF axis system, center by point cloud,
@@ -209,6 +218,7 @@ def _depths_to_world_points_with_colors(
     images_u8: np.ndarray,
     conf: np.ndarray | None,
     conf_thr: float,
+    sky_mask: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     For each frame, transform (u,v,1) through K^{-1} to get rays,
@@ -225,6 +235,8 @@ def _depths_to_world_points_with_colors(
     for i in range(N):
         d = depth[i]  # (H,W)
         valid = np.isfinite(d) & (d > 0)
+        if sky_mask is not None:
+            valid &= ~sky_mask[i]
         if conf is not None:
             valid &= conf[i] >= conf_thr
         if not np.any(valid):

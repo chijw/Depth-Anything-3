@@ -144,7 +144,8 @@ class OutputProcessor:
         """
         sky = model_output.get("sky", None)
         if sky is not None:
-            sky = sky.squeeze(0).cpu().numpy() >= 0.5  # (N, H, W)
+            # Match the model-side DA3 sky threshold used during depth alignment.
+            sky = sky.squeeze(0).cpu().numpy() >= 0.3  # (N, H, W)
         return sky
 
     def _extract_aux(self, model_output: dict[str, torch.Tensor]) -> AddictDict:

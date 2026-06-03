@@ -84,9 +84,22 @@ def _poses_from_ext(ext_ref, ext_est):
 def _umeyama_sim3_from_paths(pose_ref, pose_est):
     path_ref = PosePath3D(poses_se3=pose_ref.copy())
     path_est = PosePath3D(poses_se3=pose_est.copy())
-    r, t, s = path_est.align(path_ref, correct_scale=True)
-    pose_est_aligned = np.stack(path_est.poses_se3)
-    return r, t, s, pose_est_aligned
+    try:
+        r, t, s = path_est.align(path_ref, correct_scale=True)
+        pose_est_aligned = np.stack(path_est.poses_se3)
+        return r, t, s, pose_est_aligned
+    except Exception:
+        # Degenerate geometry (near-collinear camera centers, e.g. a pure-forward
+        # trajectory) makes the Umeyama covariance rank-deficient and evo raises.
+        # Fall back to a scale-only fit from trajectory path length, which is
+        # robust to collinearity. Scale-alignment downstream (depth /= scale) only
+        # needs `s`; rotation/translation are taken as identity here.
+        Pr = np.asarray([np.asarray(p)[:3, 3] for p in pose_ref], dtype=np.float64)
+        Pe = np.asarray([np.asarray(p)[:3, 3] for p in pose_est], dtype=np.float64)
+        lr = float(np.linalg.norm(np.diff(Pr, axis=0), axis=1).sum())
+        le = float(np.linalg.norm(np.diff(Pe, axis=0), axis=1).sum())
+        s = lr / le if le > 1e-8 else 1.0
+        return np.eye(3), np.zeros(3), s, pose_est.copy()
 
 
 def _apply_sim3_to_poses(poses, r, t, s):
